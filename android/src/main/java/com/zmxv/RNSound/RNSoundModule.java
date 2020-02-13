@@ -5,7 +5,6 @@ import android.content.res.AssetFileDescriptor;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
-import android.net.Uri;
 import android.media.AudioManager;
 
 import com.facebook.react.bridge.Arguments;
@@ -17,7 +16,6 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
-import com.facebook.react.modules.core.ExceptionsManagerModule;
 
 import java.io.File;
 import java.util.HashMap;
@@ -34,6 +32,9 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
   Boolean mixWithOthers = true;
   Double focusedPlayerKey;
   Boolean wasPlayingBeforeFocusChange = false;
+  Map<Double, Callback> _callbackPool = new HashMap<>();
+  Map<Double, ReadableMap> _optionsPool = new HashMap<>();
+  RNDownloadTask task;
 
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
@@ -58,7 +59,14 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
 
   @ReactMethod
   public void prepare(final String fileName, final Double key, final ReadableMap options, final Callback callback) {
-    MediaPlayer player = createMediaPlayer(fileName);
+    _callbackPool.put(key, callback);
+    _optionsPool.put(key, options);
+    boolean download = options.hasKey("download") && options.getBoolean("download");
+    createMediaPlayer(fileName, key, download);
+  }
+
+  private void prepareMediaPlayer(MediaPlayer player, Double key) {
+    final Callback callback = _callbackPool.get(key);
     if (player == null) {
       WritableMap e = Arguments.createMap();
       e.putInt("code", -1);
@@ -141,6 +149,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
     });
 
     try {
+      ReadableMap options = _optionsPool.get(key);
       if(options.hasKey("loadSync") && options.getBoolean("loadSync")) {
         player.prepare();
       } else {
@@ -153,9 +162,32 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
     }
   }
 
-  protected MediaPlayer createMediaPlayer(final String fileName) {
+  protected void createMediaPlayer(final String fileName, final Double key, final Boolean download) {
+    final MediaPlayer mediaPlayer = new MediaPlayer();
+    //This will download file from internet to get duration of file
+    if (download) {
+      task = new RNDownloadTask(this.context, fileName, key, new OnRNDownloadTaskListener() {
+        @Override
+        public void onDownloadFinishedEvent(String outputFile, Double key, String error) {
+          try {
+            if (error == null ){
+              mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+              mediaPlayer.setDataSource(outputFile);
+              prepareMediaPlayer(mediaPlayer, key);
+            }else {
+              prepareMediaPlayer(null, key);
+            }
+          } catch(IOException e) {
+            Log.e("RNSoundModule", "Exception", e);
+            prepareMediaPlayer(null, key);
+          }
+
+        }
+      });
+      return;
+    }
+
     int res = this.context.getResources().getIdentifier(fileName, "raw", this.context.getPackageName());
-    MediaPlayer mediaPlayer = new MediaPlayer();
     if (res != 0) {
       try {
         AssetFileDescriptor afd = context.getResources().openRawResourceFd(res);
@@ -163,9 +195,11 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
         afd.close();
       } catch (IOException e) {
         Log.e("RNSoundModule", "Exception", e);
-        return null;
+        prepareMediaPlayer(null, key);
+        return;
       }
-      return mediaPlayer;
+      prepareMediaPlayer(mediaPlayer, key);
+      return;
     }
 
     if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
@@ -175,9 +209,11 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
         mediaPlayer.setDataSource(fileName);
       } catch(IOException e) {
         Log.e("RNSoundModule", "Exception", e);
-        return null;
+        prepareMediaPlayer(null, key);
+        return;
       }
-      return mediaPlayer;
+      prepareMediaPlayer(mediaPlayer, key);
+      return;
     }
 
     if (fileName.startsWith("asset:/")){
@@ -185,10 +221,12 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
             AssetFileDescriptor descriptor = this.context.getAssets().openFd(fileName.replace("asset:/", ""));
             mediaPlayer.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
             descriptor.close();
-            return mediaPlayer;
+          prepareMediaPlayer(mediaPlayer, key);
+          return;
         } catch(IOException e) {
             Log.e("RNSoundModule", "Exception", e);
-            return null;
+            prepareMediaPlayer(null, key);
+            return;
         }
     }
 
@@ -200,12 +238,12 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
           mediaPlayer.setDataSource(fileName);
       } catch(IOException e) {
           Log.e("RNSoundModule", "Exception", e);
-          return null;
+          prepareMediaPlayer(null, key);
+          return;
       }
-      return mediaPlayer;
+      prepareMediaPlayer(mediaPlayer, key);
+      return;
     }
-    
-    return null;
   }
 
   @ReactMethod
@@ -318,9 +356,19 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
         AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         audioManager.abandonAudioFocus(this);
       }
+      clearDownloadFiles();
     }
   }
-	
+
+  private void clearDownloadFiles(){
+    File storageDir = new File(this.context.getFilesDir() + Constants.downloadFolder);
+    if(storageDir.exists()){
+      for(File tempFile : storageDir.listFiles()) {
+        tempFile.delete();
+      }
+    }
+  }
+
   @Override
   public void onCatalystInstanceDestroy() {
     java.util.Iterator it = this.playerPool.entrySet().iterator();
@@ -333,6 +381,10 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
       }
       it.remove();
     }
+
+    this._callbackPool.clear();
+    this._optionsPool.clear();
+    clearDownloadFiles();
   }
 
   @ReactMethod
