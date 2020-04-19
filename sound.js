@@ -54,6 +54,7 @@ function Sound(filename, basePath, onError, options) {
   this._key = nextKey++;
   this._playing = false;
   this._duration = -1;
+  this._currentURL = '';
   this._numberOfChannels = -1;
   this._volume = 1;
   this._pan = 0;
@@ -63,6 +64,9 @@ function Sound(filename, basePath, onError, options) {
     if (props) {
       if (typeof props.duration === 'number') {
         this._duration = props.duration;
+      }
+      if (typeof props.currentURL === 'string'){
+        this._currentURL = props.currentURL
       }
       if (typeof props.numberOfChannels === 'number') {
         this._numberOfChannels = props.numberOfChannels;
@@ -133,6 +137,10 @@ Sound.prototype.release = function() {
 
 Sound.prototype.getDuration = function() {
   return this._duration;
+};
+
+Sound.prototype.getCurrentURL = function() {
+  return this._currentURL;
 };
 
 Sound.prototype.getNumberOfChannels = function() {

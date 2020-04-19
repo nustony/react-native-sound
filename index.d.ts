@@ -101,6 +101,11 @@ declare class Sound {
    */
   getDuration(): number
 
+    /**
+   * Return current url of audio
+   */
+  getCurrentURL(): string
+
   /**
    * Return the volume of the audio player (not the system-wide volume),
    * Ranges from 0.0 (silence) through 1.0 (full volume, the default)

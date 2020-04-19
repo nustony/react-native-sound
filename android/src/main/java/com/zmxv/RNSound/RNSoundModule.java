@@ -35,6 +35,8 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
   Map<Double, Callback> _callbackPool = new HashMap<>();
   Map<Double, ReadableMap> _optionsPool = new HashMap<>();
   RNDownloadTask task;
+  String currentURL = "";
+
 
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
@@ -64,6 +66,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
     boolean download = options.hasKey("download") && options.getBoolean("download");
     createMediaPlayer(fileName, key, download);
   }
+
 
   private void prepareMediaPlayer(MediaPlayer player, Double key) {
     final Callback callback = _callbackPool.get(key);
@@ -118,6 +121,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
 
         WritableMap props = Arguments.createMap();
         props.putDouble("duration", mp.getDuration() * .001);
+        props.putString("currentURL", currentURL);
         try {
           callback.invoke(NULL, props);
         } catch(RuntimeException runtimeException) {
@@ -173,6 +177,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
             if (error == null ){
               mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
               mediaPlayer.setDataSource(outputFile);
+              currentURL = outputFile;
               prepareMediaPlayer(mediaPlayer, key);
             }else {
               prepareMediaPlayer(null, key);
